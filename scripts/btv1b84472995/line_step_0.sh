@@ -1,0 +1,14 @@
+CUDA_VISIBLE_DEVICES=1 python reconstruction.py \
+    --dataset_file dataset \
+    --data_folder btv1b84472995 \
+    --space_index 0 \
+    --model_config_path config/Latin_accent.py \
+    --max_e 20 \
+    --num_fine_classes 2 \
+    --step 0 \
+    --batch_size 16 \
+    --init \
+    --wandb \
+    --tag test_new_ckpt \
+    --loss L1 \
+    --model_checkpoint_path /home/rbaena/projects/learnable-DTLR/logs/OCR_general/checkpoint.pth

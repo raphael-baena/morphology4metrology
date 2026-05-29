@@ -1,0 +1,17 @@
+CUDA_VISIBLE_DEVICES=1 python reconstruction.py \
+    --dataset_file dataset \
+    --data_folder bilingual \
+    --documents \
+    --space_index 0 \
+    --max_e 200 \
+    --num_fine_classes 2 \
+    --step 2 \
+    --wandb \
+    --mask_sprite \
+    --learning_rate 1e-3\
+    --batch_size 8 \
+    --tag iwcp_debug\
+    --output_dir /home/rbaena/projects/learnable-DTLR/logs_reconstruction/ \
+    --prototypes_only_path /home/rbaena/projects/learnable-DTLR/logs_reconstruction/ICDAR_line_checkpoint/reconstructor.pth \
+    --model_checkpoint_path /home/rbaena/projects/learnable-DTLR/logs_reconstruction/ICDAR_line_checkpoint/model.pth \
+    --annotation_file /home/rbaena/datasets/bilingual/annotation.json

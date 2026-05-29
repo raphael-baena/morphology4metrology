@@ -1,0 +1,17 @@
+CUDA_VISIBLE_DEVICES=1 python reconstruction.py \
+    --dataset_file dataset \
+    --data_folder btv1b84472995 \
+    --documents \
+    --space_index 0 \
+    --max_e 140 \
+    --num_fine_classes 2 \
+    --step 2 \
+    --wandb \
+    --mask_sprite \
+    --learning_rate 1e-2 \
+    --batch_size 8 \
+    --tag btv1b84472995_finetune_weight_loss_reconstruction_3_bis \
+    --output_dir /home/rbaena/projects/learnable-DTLR/logs_reconstruction/ \
+    --prototypes_only_path logs_reconstruction/btv1b84472995_step_1_weight_loss_reconstruction_3_bis/reconstructor_unfrozen.pth \
+    --model_checkpoint_path logs_reconstruction/btv1b84472995_step_1_weight_loss_reconstruction_3_bis/model.pth \
+    --annotation_file /home/rbaena/datasets/btv1b84472995/annotation.json
