@@ -20,7 +20,7 @@ This repository contains the official implementation of the architecture present
 
 Our codebase extends the detection-based text recognition model (DTLR) with a prototype-based line reconstruction module. It provides the complete pipeline to train the model and extract interpretable, learnable character **prototypes** along with precise, instance-level **bounding boxes** using only line-level transcription supervision.
 
-> **Note:** This repository handles the deep learning architecture, training, and output generation. To perform the downstream metrological and paleographical analysis (and reproduce the visualizations reported in the paper), please export the outputs from this pipeline and use our dedicated analysis toolkit: **[dtlr-for-metrology](https://github.com/malamatenia/dtlr-for-metrology)**.
+> **Note:** This repository handles the deep learning architecture, training, and output generation. To perform the downstream metrological and paleographical analysis (and reproduce the visualizations reported in the paper), please export the outputs from this pipeline and use our dedicated analysis toolkit: **[dtlr-for-metrology](https://github.com/malamatenia/morphology4metrology-analysis)**.
 
 ## Content
 
