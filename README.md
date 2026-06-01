@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><a href="https://malamatenia.github.io/dtlr-for-metrology/">Leveraging Morphology for Historical Script Metrological Analysis</a><br>(ICDAR 2026)</h1>
+<h1><a href="https://malamatenia.github.io/morphology4metrology-analysis/">Leveraging Morphology for Historical Script Metrological Analysis</a><br>(ICDAR 2026)</h1>
 
 <font size="4">
 <a href="https://malamatenia.github.io/">Malamatenia Vlachou Efstathiou</a>*&emsp;
