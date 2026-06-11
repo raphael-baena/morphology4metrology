@@ -29,11 +29,16 @@ Our codebase extends the detection-based text recognition model (DTLR) with a pr
 
 ## Paper dataset (BnF fr. 2813)
 
-Experiments in the ICDAR 2026 paper use the **Grandes Chroniques de France** line dataset ([Paris, BnF, fr. 2813](https://gallica.bnf.fr/ark:/12148/btv1b84472995)), published on Zenodo:
+Experiments in the ICDAR 2026 paper use the **Grandes Chroniques de France** line dataset ([Paris, BnF, fr. 2813](https://gallica.bnf.fr/ark:/12148/btv1b84472995)), available at:
 
-**[Dataset for BnF, fr. 2813 — Grandes Chroniques de France](https://zenodo.org/records/18745702)** (DOI: [10.5281/zenodo.18745702](https://doi.org/10.5281/zenodo.18745702))
+- **Zenodo** (canonical release, includes HTR ground truth + ALTO XML): **[Dataset for BnF, fr. 2813 — Grandes Chroniques de France](https://zenodo.org/records/18745702)** (DOI: [10.5281/zenodo.18745702](https://doi.org/10.5281/zenodo.18745702))
+- **Hugging Face** (line dataset for training, `dataset.zip` content): [RaphaelBfr/morphology4metrology-bnf2813](https://huggingface.co/datasets/RaphaelBfr/morphology4metrology-bnf2813)
+  ```bash
+  pip install huggingface_hub
+  hf download RaphaelBfr/morphology4metrology-bnf2813 --repo-type dataset --local-dir /path/to/datasets/btv1b84472995
+  ```
 
-Download `dataset.zip`, extract under your `datasets_path`, and use `--data_folder btv1b84472995` (folder name matches the Gallica ark id).
+Download `dataset.zip` from Zenodo (or use the Hugging Face mirror), extract under your `datasets_path`, and use `--data_folder btv1b84472995` (folder name matches the Gallica ark id).
 
 Ready-made training scripts for this dataset:
 
@@ -128,9 +133,14 @@ This repo extends [DTLR](https://github.com/raphael-baena/DTLR) with **accent-aw
 
 **You do not have to run synthetic pretraining.** For most workflows, download the **pretrained detector** we provide and go directly to [step 0](#step-0-pretraining) on your text line dataset:
 
-**[Download pretrained DTLR + accent checkpoint](https://drive.google.com/file/d/1XQHVTr8ddJJF187GhamZ0xLAaOQCeoM1/view?usp=sharing)** 
+- **Hugging Face**: [RaphaelBfr/morphology4metrology](https://huggingface.co/RaphaelBfr/morphology4metrology)
+  ```bash
+  pip install huggingface_hub
+  hf download RaphaelBfr/morphology4metrology checkpoint.pth --local-dir ./weights
+  ```
+- **Google Drive**: [Download pretrained DTLR + accent checkpoint](https://drive.google.com/file/d/1XQHVTr8ddJJF187GhamZ0xLAaOQCeoM1/view?usp=sharing)
 
-Use that file as `--model_checkpoint_path` together with `--init` in step 0.
+Use the downloaded file as `--model_checkpoint_path` together with `--init` in step 0.
 
 ### If you want to train the detector on synthetic lines yourself
 
@@ -153,7 +163,8 @@ bash scripts/pretraining/Synthetic_random.sh
 
 | Input | Role |
 |-------|------|
-| `--model_checkpoint_path` | Pretrained DTLR detector with accents ([provided weights](https://drive.google.com/file/d/1XQHVTr8ddJJF187GhamZ0xLAaOQCeoM1/view?usp=sharing) or your own synthetic pretrain) |
+| `--model_checkpoint_path` | Pretrained detector with accents ([Hugging Face](https://huggingface.co/RaphaelBfr/morphology4metrology), [Google Drive](https://drive.google.com/file/d/1XQHVTr8ddJJF187GhamZ0xLAaOQCeoM1/view?usp=sharing), or your own synthetic pretrain) |
+| `--init` | Rebuild classifier for the dataset charset from the pretrained checkpoint |
 | Full `data_folder` | All lines in the dataset (no `--document` / `--documents`) |
 
 **Example** (`data_folder=btv1b84472995`, [paper dataset](https://zenodo.org/records/18745702)) — or run [`scripts/btv1b84472995/line_step_0.sh`](scripts/btv1b84472995/line_step_0.sh):
@@ -182,7 +193,7 @@ python reconstruction.py \
 |-------------------|------|
 | `--step 0` | Freeze detector boxes; train reconstructor + classification head only. |
 | `--init` | Rebuild classifier for the dataset charset from the pretrained checkpoint. |
-| `--model_checkpoint_path` | Starting DTLR weights (download link above, or from synthetic pretraining). |
+| `--model_checkpoint_path` | Starting weights (Hugging Face or Google Drive links above, or from synthetic pretraining). |
 | `--sprite_size 32` | Prototype resolution for the whole pipeline. |
 | `--space_index 0` | Which prototype index is treated as space. |
 | `--tag` | Run name; outputs go to `logs_reconstruction/<tag>/`. |
