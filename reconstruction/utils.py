@@ -15,6 +15,104 @@ from torchvision.utils import make_grid
 from PIL import ImageDraw, ImageFont
 
 
+def get_grid_font(size=36):
+    """Font loader for prototype grids — keep the original fallback chain."""
+    try:
+        return ImageFont.truetype("/home/vlachoum/learnable-DTLR/Junicode.ttf", size)
+    except OSError:
+        try:
+            return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+        except OSError:
+            try:
+                return ImageFont.truetype("/System/Library/Fonts/Arial.ttf", size)
+            except OSError:
+                return ImageFont.load_default()
+
+
+def get_unicode_font(size=12):
+    """Same font chain as prototype grids (DejaVu Bold fallback)."""
+    return get_grid_font(size)
+
+
+def class_index_to_char(class_idx, charset):
+    if class_idx == 0:
+        return None
+    return charset[(class_idx - 1) % len(charset)]
+
+
+def decode_prediction_text(example_scores, charset, num_fine_classes=None):
+    if hasattr(example_scores, "detach"):
+        example_scores = example_scores.detach().cpu().numpy()
+    pred_indices = np.argmax(example_scores, axis=-1)
+
+    if num_fine_classes is None:
+        chars = []
+        for idx in pred_indices:
+            char = class_index_to_char(int(idx), charset)
+            if char is not None:
+                chars.append(char)
+        return chars, "".join(chars)
+
+    predicted_chars = pred_indices[::2]
+    predicted_accents = pred_indices[1::2]
+    chars = []
+    for query_idx, pred_char in enumerate(predicted_chars):
+        pred_accent = (
+            predicted_accents[query_idx]
+            if query_idx < len(predicted_accents)
+            else 0
+        )
+        if pred_char == 0 and pred_accent == 0:
+            continue
+        char = class_index_to_char(int(pred_char), charset)
+        if char is not None:
+            chars.append(char)
+        accent = class_index_to_char(int(pred_accent), charset)
+        if accent is not None:
+            chars.append(accent)
+    return chars, "".join(chars)
+
+
+def decode_target_text(target, charset):
+    if "labels" not in target:
+        return ""
+    labels = target["labels"]
+    char_target = labels[1]
+    accent_target = labels[2]
+    blank_accent = 2 * len(charset)
+    chars = []
+    for i in range(len(char_target)):
+        chars.append(charset[char_target[i].item()])
+        accent_idx = accent_target[i].item()
+        if accent_idx != blank_accent:
+            chars.append(charset[accent_idx % len(charset)])
+    return "".join(chars)
+
+
+def put_unicode_text(image_arr, text, position, font_size=16, color=(255, 255, 255), bgr=False):
+    """Draw Unicode text on a uint8 HxWx3 image. position is (x, y) with y as text baseline."""
+    if not text:
+        return image_arr
+
+    img = image_arr.copy()
+    if bgr:
+        pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    else:
+        pil_img = Image.fromarray(img)
+
+    draw = ImageDraw.Draw(pil_img)
+    font = get_unicode_font(font_size)
+    x, y = position
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_height = bbox[3] - bbox[1]
+    draw.text((x, y - text_height), text, font=font, fill=color)
+
+    out = np.array(pil_img)
+    if bgr:
+        out = cv2.cvtColor(out, cv2.COLOR_RGB2BGR)
+    return out
+
+
 def checkpoint_weights(checkpoint):
     """Return state dict from a checkpoint (dict with 'weights' or raw state dict)."""
     if isinstance(checkpoint, dict) and "weights" in checkpoint:
@@ -51,14 +149,13 @@ def add_character_labels(grid_img, charset):
     # Create a copy to draw on
     labeled_img = grid_img.copy()
     draw = ImageDraw.Draw(labeled_img)
-    
-    # Try to use a default font, fallback to default if not available
+
     try:
         font = ImageFont.truetype("/home/vlachoum/learnable-DTLR/Junicode.ttf", 12)
-    except:
+    except OSError:
         try:
             font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 12)
-        except:
+        except OSError:
             font = ImageFont.load_default()
     
     # Calculate grid dimensions
@@ -272,18 +369,7 @@ def create_manual_grid(proto_pixel, charset, num_sprites_per_letter=1, sprite_bb
     # Create blank image
     grid_img = Image.new('RGB', (total_width, total_height), (255, 255, 255))
     draw = ImageDraw.Draw(grid_img)
-    
-    # Use the specified font with higher resolution
-    try:
-        font = ImageFont.truetype("/home/vlachoum/learnable-DTLR/Junicode.ttf", 36)
-    except:
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-        except:
-            try:
-                font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 36)
-            except:
-                font = ImageFont.load_default()
+    font = get_grid_font(36)
     
     # Create grids for each sprite index
     for sprite_idx in range(num_sprites_per_letter):
@@ -993,6 +1079,8 @@ def save_reconstruction_visualization(image, mask, target, reconstructor, model,
             space_index = args.space_index
         else:
             space_index = 0
+        if getattr(args, "num_fine_classes", None) is not None:
+            num_fine_classes = args.num_fine_classes
     image = image.unsqueeze(0)
     # mask = mask.unsqueeze(0)
     target = [target]
@@ -1078,13 +1166,15 @@ def save_reconstruction_visualization(image, mask, target, reconstructor, model,
         bboxes = box_ops.box_cxcywh_to_xyxy(bboxes)
         for it, bb in enumerate(bboxes[0].detach()):
             bb = bb.int().cpu().numpy()
-            if scores[0][it].argmax().item() != 0:
+            class_idx = int(scores[0][it].argmax(dim=-1).item())
+            if class_idx != 0 and (num_fine_classes is None or it % 2 == 0):
                 cv2.rectangle(color_image_bgr, (bb[0], bb[1]), (bb[2], bb[3]), (0, 0, 255), 1)
-                char = charset[(scores[0][it].argmax().item()-1)%len(charset)]
-                char = 'char {}'.format(char)
-                text_size = cv2.getTextSize(char, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-                text_y = bb[3] - 5
-                cv2.putText(color_image_bgr, char, (bb[0], text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                char = class_index_to_char(class_idx, charset)
+                if char is not None:
+                    text_y = bb[3] - 5
+                    color_image_bgr = put_unicode_text(
+                        color_image_bgr, char, (bb[0], text_y), font_size=14, color=(255, 0, 0), bgr=True
+                    )
         
     # Convert back to RGB and normalize
     color_image_with_bboxes = cv2.cvtColor(color_image_bgr, cv2.COLOR_BGR2RGB)
@@ -1093,40 +1183,50 @@ def save_reconstruction_visualization(image, mask, target, reconstructor, model,
     # Stack images
     stacked_image = np.vstack((color_image_with_bboxes, reco_image))
     
-    # Process transcription
-    transcription_list = [charset[(i-1)%len(charset)] for i in scores[0].argmax(dim=1).detach().cpu().numpy() if i != 0]
-    transcription = "".join(transcription_list)
-    transcription_list_str = str(transcription_list)
-    
+    # Process transcription (same decoding as predict.py)
+    transcription_list, transcription = decode_prediction_text(
+        scores[0], charset, num_fine_classes=num_fine_classes
+    )
+    ground_truth = decode_target_text(target[0], charset)
+    footer_lines = [
+        f"GT: {ground_truth}",
+        f"Pred: {transcription}",
+    ]
+
     # Convert to uint8 and add padding
     stacked_image_uint8 = (stacked_image * 255).astype(np.uint8)
-    padding_height = 50
-    padded_image = np.zeros((stacked_image_uint8.shape[0] + padding_height, stacked_image_uint8.shape[1], 3), dtype=np.uint8)
+    font_size = 16
+    font = get_grid_font(font_size)
+    line_heights = []
+    line_widths = []
+    for line in footer_lines:
+        bbox = ImageDraw.Draw(Image.new("RGB", (1, 1))).textbbox((0, 0), line, font=font)
+        line_heights.append(bbox[3] - bbox[1])
+        line_widths.append(bbox[2] - bbox[0])
+    padding_height = sum(line_heights) + 8 * (len(footer_lines) + 1)
+    padded_image = np.zeros(
+        (stacked_image_uint8.shape[0] + padding_height, stacked_image_uint8.shape[1], 3),
+        dtype=np.uint8,
+    )
     padded_image[:stacked_image_uint8.shape[0], :stacked_image_uint8.shape[1]] = stacked_image_uint8
-    
-    # Add text
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.5
-    font_thickness = 1
-    font_color = (255, 255, 255)
-    
-    text_size = cv2.getTextSize(transcription, font, font_scale, font_thickness)[0]
-    list_text_size = cv2.getTextSize(transcription_list_str, font, font_scale, font_thickness)[0]
-    
-    text_x = (padded_image.shape[1] - max(text_size[0], list_text_size[0])) // 2
-    text_y = stacked_image_uint8.shape[0] + 20
-    list_text_y = stacked_image_uint8.shape[0] + 40
-    
-    # Add black background for text
-    cv2.rectangle(padded_image, 
-                (text_x - 5, text_y - text_size[1] - 5),
-                (text_x + max(text_size[0], list_text_size[0]) + 5, list_text_y + 5),
-                (0, 0, 0),
-                -1)
-    
-    # Add text
-    cv2.putText(padded_image, transcription, (text_x, text_y), font, font_scale, font_color, font_thickness)
-    cv2.putText(padded_image, transcription_list_str, (text_x, list_text_y), font, font_scale, font_color, font_thickness)
+
+    max_text_width = max(line_widths) if line_widths else 0
+    text_x = max(5, (padded_image.shape[1] - max_text_width) // 2)
+    text_y = stacked_image_uint8.shape[0] + 8
+
+    cv2.rectangle(
+        padded_image,
+        (0, stacked_image_uint8.shape[0]),
+        (padded_image.shape[1], padded_image.shape[0]),
+        (0, 0, 0),
+        -1,
+    )
+    pil_footer = Image.fromarray(padded_image)
+    draw = ImageDraw.Draw(pil_footer)
+    for line, height in zip(footer_lines, line_heights):
+        draw.text((text_x, text_y), line, font=font, fill=(255, 255, 255))
+        text_y += height + 8
+    padded_image = np.array(pil_footer)
     
     # Convert back to float and save
     stacked_image = padded_image.astype(np.float32) / 255.0

@@ -33,6 +33,7 @@ class LineDataset(Dataset):
       split=None,
       script=None,
       line=None,
+      reverse_labels=False,
   ):
     if data_folder is None:
       raise ValueError("data_folder is None. Please provide a data_folder")
@@ -43,6 +44,7 @@ class LineDataset(Dataset):
     self.split = split
     self.script = script
     self.line = line
+    self.reverse_labels = reverse_labels
     self.data_folder = data_folder
     self.transform = transform
     self.target_transform = target_transform
@@ -202,26 +204,36 @@ class LineDataset(Dataset):
         [general_labels, with_accent, without_accent], dtype=torch.int64
     )
 
-  def __getitem__(self, idx):
-    key, example = self.data[idx]
-    text = example["label"]
-
+  def _resolve_image_path(self, key):
     images_root = os.path.join(datasets_path, self.data_folder, "images")
-    folders = os.listdir(images_root)
+    flat_path = os.path.join(images_root, key)
+    if os.path.isfile(flat_path):
+      return flat_path
 
     best_match = None
     best_match_length = 0
-    for folder_name in folders:
+    for folder_name in os.listdir(images_root):
+      folder_path = os.path.join(images_root, folder_name)
+      if not os.path.isdir(folder_path):
+        continue
       if key.startswith(folder_name) and len(folder_name) > best_match_length:
-        test_path = os.path.join(images_root, folder_name, key)
+        test_path = os.path.join(folder_path, key)
         if os.path.exists(test_path):
           best_match = folder_name
           best_match_length = len(folder_name)
 
     if best_match is None:
-      raise FileNotFoundError(f"Could not find folder containing file {key}")
+      raise FileNotFoundError(f"Could not find image for {key} under {images_root}")
 
-    path_image = os.path.join(images_root, best_match, key)
+    return os.path.join(images_root, best_match, key)
+
+  def __getitem__(self, idx):
+    key, example = self.data[idx]
+    text = example["label"]
+    if self.reverse_labels:
+      text = text[::-1]
+
+    path_image = self._resolve_image_path(key)
     image = Image.open(path_image).convert("RGB")
 
     labels = {}
@@ -336,6 +348,7 @@ def build_line_dataset(image_set, args):
     args.script = None
   if not getattr(args, "line", None):
     args.line = None
+  reverse_labels = getattr(args, "reverse_labels", False)
   return LineDataset(
       image_set,
       transforms,
@@ -344,4 +357,5 @@ def build_line_dataset(image_set, args):
       split=args.split,
       script=args.script,
       line=args.line,
+      reverse_labels=reverse_labels,
   )

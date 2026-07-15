@@ -90,6 +90,11 @@ parser.add_argument(
 )
 parser.add_argument("--composite_mode", type=str, default="batch", choices=["sequential", "batch", "additive"],
     help="Composite mode: 'sequential' (random order per query), 'batch' (modulo 4 groups), 'additive'")
+parser.add_argument(
+    "--reverse_labels",
+    action="store_true",
+    help="Reverse ground-truth text before label generation (for RTL scripts read left-to-right on line images)",
+)
 
 args = parser.parse_args()
 if len(args.sprite_size) == 1:
@@ -1049,7 +1054,10 @@ for item_idx, item in enumerate(items):
                 temp_args.output_dir = item_output_dir
                 # Add unfrozen attribute for compatibility with save_reconstruction_visualization
                 temp_args.unfrozen = (args.step == 1)
-                save_reconstruction_visualization(image, mask, target, reconstructor, model, dataset_train.charset, temp_args, e, device, batch_idx=i)
+                save_reconstruction_visualization(
+                    image, mask, target, reconstructor, model, dataset_train.charset,
+                    temp_args, e, device, num_fine_classes=args.num_fine_classes, batch_idx=i,
+                )
         
         # Create grid evolution GIF
         create_grid_gif(results_folder, args.step)

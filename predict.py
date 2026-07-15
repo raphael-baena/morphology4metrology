@@ -643,6 +643,11 @@ def main():
         default=1400,
         help="Line image max width before width compression",
     )
+    parser.add_argument(
+        "--reverse_labels",
+        action="store_true",
+        help="Reverse ground-truth text before label generation (RTL scripts on LTR line images)",
+    )
     args = parser.parse_args()
     
     # Exactly one mode must be selected
