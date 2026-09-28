@@ -174,13 +174,15 @@ class LineDataset(Dataset):
 
   def convert_str_to_tensor(self, text):
     decomposed = unicodedata.normalize("NFD", text)
-    clusters = []
-    for char in decomposed:
-      if unicodedata.combining(char):
-        clusters[-1] += char
-      else:
-        clusters.append(char)
-    return clusters
+    clusters = []
+    for char in decomposed:
+      if unicodedata.combining(char):
+        if clusters: # guard against leading combining character
+          clusters[-1] += char
+        # else: skip orphaned leading combining mark
+      else:
+        clusters.append(char)
+    return clusters
 
   def generate_labels(self, norm_labels):
     with_accent = []
