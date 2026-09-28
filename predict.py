@@ -1,12 +1,3 @@
-#!/usr/bin/env python3
-"""
-Prediction script for trained DTLR models.
-Supports three mutually exclusive modes:
-1. Multiple documents (--documents): iterate over models in subfolders
-2. Single model (--single_model): use model.pth and reconstructor directly in path_models
-3. Scripts (--script): iterate over a list of scripts (like reconstruction.py)
-"""
-
 import os
 import torch
 import json
@@ -93,59 +84,133 @@ def compute_cer(predicted_text, ground_truth_text):
     return distance / len(ground_truth_text)
 
 
-def get_alignment_labels(ground_truth, prediction):
-    """Compute alignment between ground truth and prediction."""
+def get_alignment_ops(ground_truth, prediction):
+    """Levenshtein alignment as left-to-right ops (match/substitution/insertion/deletion)."""
     m, n = len(ground_truth), len(prediction)
     dp = [[0] * (n + 1) for _ in range(m + 1)]
-    
+
     for i in range(m + 1):
         dp[i][0] = i
     for j in range(n + 1):
         dp[0][j] = j
-        
+
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            if ground_truth[i - 1] == prediction[j - 1]:
-                cost = 0
-            else:
-                cost = 1
-            
+            cost = 0 if ground_truth[i - 1] == prediction[j - 1] else 1
             dp[i][j] = min(
                 dp[i - 1][j] + 1,
                 dp[i][j - 1] + 1,
-                dp[i - 1][j - 1] + cost
+                dp[i - 1][j - 1] + cost,
             )
-            
+
+    ops = []
     i, j = m, n
-    labels = [None] * n
-    
     while i > 0 or j > 0:
         cost = dp[i][j]
-        
-        if i > 0 and j > 0 and ground_truth[i - 1] == prediction[j - 1]:
-            if cost == dp[i - 1][j - 1]:
-                labels[j - 1] = 'match'
-                i -= 1
-                j -= 1
-                continue
-                
-        if i > 0 and j > 0 and ground_truth[i - 1] != prediction[j - 1]:
-            if cost == dp[i - 1][j - 1] + 1:
-                labels[j - 1] = 'substitution'
-                i -= 1
-                j -= 1
-                continue
-                
-        if j > 0 and cost == dp[i][j - 1] + 1:
-            labels[j - 1] = 'insertion'
+        if i > 0 and j > 0 and ground_truth[i - 1] == prediction[j - 1] and cost == dp[i - 1][j - 1]:
+            ops.append({"label": "match", "gt_idx": i - 1, "pred_idx": j - 1})
+            i -= 1
             j -= 1
             continue
-            
+        if i > 0 and j > 0 and ground_truth[i - 1] != prediction[j - 1] and cost == dp[i - 1][j - 1] + 1:
+            ops.append({"label": "substitution", "gt_idx": i - 1, "pred_idx": j - 1})
+            i -= 1
+            j -= 1
+            continue
+        if j > 0 and cost == dp[i][j - 1] + 1:
+            ops.append({"label": "insertion", "gt_idx": None, "pred_idx": j - 1})
+            j -= 1
+            continue
         if i > 0 and cost == dp[i - 1][j] + 1:
+            ops.append({"label": "deletion", "gt_idx": i - 1, "pred_idx": None})
             i -= 1
             continue
-            
-    return labels
+        if j > 0:
+            ops.append({"label": "insertion", "gt_idx": None, "pred_idx": j - 1})
+            j -= 1
+        else:
+            ops.append({"label": "deletion", "gt_idx": i - 1, "pred_idx": None})
+            i -= 1
+    ops.reverse()
+    return ops
+
+
+def _lerp_bbox(a, b, t):
+    return {
+        "cx": a["cx"] + (b["cx"] - a["cx"]) * t,
+        "cy": a["cy"] + (b["cy"] - a["cy"]) * t,
+        "w": a["w"] + (b["w"] - a["w"]) * t,
+        "h": a["h"] + (b["h"] - a["h"]) * t,
+    }
+
+
+def _fill_deletion_bboxes(aligned):
+    """Place missing characters between neighboring detections (visualization only)."""
+    n = len(aligned)
+    i = 0
+    while i < n:
+        if aligned[i].get("error_label") != "deletion":
+            i += 1
+            continue
+        start = i
+        while i < n and aligned[i].get("error_label") == "deletion":
+            i += 1
+        prev_bbox = None
+        next_bbox = None
+        for k in range(start - 1, -1, -1):
+            if aligned[k].get("error_label") != "deletion" and "bbox" in aligned[k]:
+                prev_bbox = aligned[k]["bbox"]
+                break
+        for k in range(i, n):
+            if aligned[k].get("error_label") != "deletion" and "bbox" in aligned[k]:
+                next_bbox = aligned[k]["bbox"]
+                break
+        count = i - start
+        for k, idx in enumerate(range(start, i)):
+            if prev_bbox and next_bbox:
+                aligned[idx]["bbox"] = _lerp_bbox(prev_bbox, next_bbox, (k + 1) / (count + 1))
+            elif prev_bbox:
+                aligned[idx]["bbox"] = {
+                    "cx": prev_bbox["cx"] + prev_bbox["w"] * (k + 1),
+                    "cy": prev_bbox["cy"],
+                    "w": prev_bbox["w"],
+                    "h": prev_bbox["h"],
+                }
+            elif next_bbox:
+                aligned[idx]["bbox"] = {
+                    "cx": max(0.0, next_bbox["cx"] - next_bbox["w"] * (count - k)),
+                    "cy": next_bbox["cy"],
+                    "w": next_bbox["w"],
+                    "h": next_bbox["h"],
+                }
+
+
+def apply_alignment_labels(predictions, ground_truth_text, predicted_text):
+    """Attach error_label to detections; insert deletion placeholders in reading order."""
+    ops = get_alignment_ops(ground_truth_text, predicted_text)
+    aligned = []
+    pred_i = 0
+    for op in ops:
+        label = op["label"]
+        if label == "deletion":
+            aligned.append({
+                "character": ground_truth_text[op["gt_idx"]],
+                "error_label": "deletion",
+                "confidence": 0.0,
+                "sprite_index": None,
+            })
+            continue
+        if pred_i >= len(predictions):
+            break
+        predictions[pred_i]["error_label"] = label
+        aligned.append(predictions[pred_i])
+        pred_i += 1
+    while pred_i < len(predictions):
+        predictions[pred_i]["error_label"] = "unknown"
+        aligned.append(predictions[pred_i])
+        pred_i += 1
+    _fill_deletion_bboxes(aligned)
+    return aligned
 
 
 def process_item(item, item_type, model_path, reconstructor_path, args, device):
@@ -408,18 +473,17 @@ def process_item(item, item_type, model_path, reconstructor_path, args, device):
                 
                 predicted_text = ''.join([pred["character"] for pred in predictions])
                 ground_truth_text = ''.join(ground_truth)
+                num_predictions = len(predictions)
                 
                 predicted_text_decomposed = unicodedata.normalize('NFD', predicted_text)
                 ground_truth_text_decomposed = unicodedata.normalize('NFD', ground_truth_text)
                 
                 cer = compute_cer(predicted_text_decomposed, ground_truth_text_decomposed)
-                alignment_labels = get_alignment_labels(ground_truth_text_decomposed, predicted_text_decomposed)
-                
-                for pred_idx, pred_item in enumerate(predictions):
-                    if pred_idx < len(alignment_labels):
-                        pred_item["error_label"] = alignment_labels[pred_idx]
-                    else:
-                        pred_item["error_label"] = "unknown"
+                predictions = apply_alignment_labels(
+                    predictions,
+                    ground_truth_text_decomposed,
+                    predicted_text_decomposed,
+                )
                 
                 result = {
                     "predictions": predictions,
@@ -427,7 +491,7 @@ def process_item(item, item_type, model_path, reconstructor_path, args, device):
                     "predicted_text": predicted_text,
                     "ground_truth_text": ground_truth_text,
                     "cer": cer,
-                    "num_predictions": len(predictions),
+                    "num_predictions": num_predictions,
                     "num_ground_truth": len(ground_truth),
                     "path": target.get("path", f"example_{idx}")
                 }
@@ -446,7 +510,7 @@ def process_item(item, item_type, model_path, reconstructor_path, args, device):
                     "cer": cer,
                     "predicted_text": predicted_text,
                     "ground_truth_text": ground_truth_text,
-                    "num_predictions": len(predictions),
+                    "num_predictions": num_predictions,
                     "num_ground_truth": len(ground_truth)
                 })
 
@@ -642,11 +706,6 @@ def main():
         type=int,
         default=1400,
         help="Line image max width before width compression",
-    )
-    parser.add_argument(
-        "--reverse_labels",
-        action="store_true",
-        help="Reverse ground-truth text before label generation (RTL scripts on LTR line images)",
     )
     args = parser.parse_args()
     
