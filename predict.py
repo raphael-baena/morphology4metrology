@@ -1,3 +1,11 @@
+"""
+Prediction script for trained DTLR models.
+Supports three mutually exclusive modes:
+1. Multiple documents (--documents): iterate over models in subfolders
+2. Single model (--single_model): use model.pth and reconstructor directly in path_models
+3. Scripts (--script): iterate over a list of scripts (like reconstruction.py)
+"""
+
 import os
 import torch
 import json
@@ -470,6 +478,9 @@ def process_item(item, item_type, model_path, reconstructor_path, args, device):
                             ground_truth.append(composed_char)
                         else:
                             ground_truth.append(base_char)
+
+                if getattr(args, "reverse_labels", False):
+                    ground_truth = list(reversed(ground_truth))
                 
                 predicted_text = ''.join([pred["character"] for pred in predictions])
                 ground_truth_text = ''.join(ground_truth)
@@ -706,6 +717,11 @@ def main():
         type=int,
         default=1400,
         help="Line image max width before width compression",
+    )
+    parser.add_argument(
+        "--reverse_labels",
+        action="store_true",
+        help="Reverse ground-truth text before label generation (RTL scripts on LTR line images)",
     )
     args = parser.parse_args()
     
