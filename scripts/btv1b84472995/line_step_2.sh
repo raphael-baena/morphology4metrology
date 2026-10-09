@@ -14,4 +14,5 @@ CUDA_VISIBLE_DEVICES=1 python reconstruction.py \
     --output_dir /home/rbaena/projects/learnable-DTLR/logs_reconstruction/ \
     --prototypes_only_path logs_reconstruction/btv1b84472995_step_1_weight_loss_reconstruction_3_bis/reconstructor_unfrozen.pth \
     --model_checkpoint_path logs_reconstruction/btv1b84472995_step_1_weight_loss_reconstruction_3_bis/model.pth \
+    --loss L1 \
     --annotation_file /home/rbaena/datasets/btv1b84472995/annotation.json
